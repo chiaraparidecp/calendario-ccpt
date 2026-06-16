@@ -1,6 +1,25 @@
 import { useState, useEffect, useCallback } from "react";
 
-import { sb } from './supabase';
+// ── CONFIG SUPABASE ───────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://leqidlevtqnfbeedjvca.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxlcWlkbGV2dHFuZmJlZWRqdmNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1MTQ3ODQsImV4cCI6MjA5NzA5MDc4NH0.vFRl1CJosYD1JumwMzI7F1gUneD1CtET2dSZrNtxciA";
+
+const H = {
+  "apikey": SUPABASE_KEY,
+  "Authorization": `Bearer ${SUPABASE_KEY}`,
+  "Content-Type": "application/json",
+  "Prefer": "return=representation",
+};
+
+async function sb(path, opts = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: H, ...opts });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
 
 // ── PALETTE ───────────────────────────────────────────────────────────────────
 const P = {
@@ -257,36 +276,245 @@ function NuovoPostModal({ onClose, onSave, aree, progetti, team, prefillAreaId, 
   );
 }
 
-// ── MODAL NUOVA AREA ──────────────────────────────────────────────────────────
-function NuovaAreaModal({ onClose, onSave }) {
+// ── MODAL GESTIONE AREE (nuova + modifica + archivia) ────────────────────────
+function GestioneAreeModal({ onClose, aree, onSave, onUpdate, onArchivia }) {
+  const [tab, setTab] = useState("lista"); // lista | nuova
   const [nome, setNome] = useState("");
   const [colore, setColore] = useState("#A0442A");
   const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [editNome, setEditNome] = useState("");
+  const [editColore, setEditColore] = useState("");
+  const [confirmArch, setConfirmArch] = useState(null);
 
   async function handleSave() {
     if (!nome) return;
     setSaving(true);
     await onSave(nome, colore);
+    setNome(""); setColore("#A0442A");
     setSaving(false);
+    setTab("lista");
   }
 
+  async function handleUpdate(id) {
+    setSaving(true);
+    await onUpdate(id, { nome: editNome, colore_hex: editColore });
+    setSaving(false);
+    setEditId(null);
+  }
+
+  async function handleArchivia(id) {
+    setSaving(true);
+    await onArchivia(id);
+    setSaving(false);
+    setConfirmArch(null);
+  }
+
+  const areeAttive = aree.filter(a => !a.archiviata);
+
   return (
-    <Modal title="Nuova area" onClose={onClose}>
-      <Field label="Nome area">
-        <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="es. Trauma" style={inputStyle} />
-      </Field>
-      <Field label="Colore identificativo">
-        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <input type="color" value={colore} onChange={e=>setColore(e.target.value)}
-            style={{ width:44, height:44, border:"none", borderRadius:8, cursor:"pointer" }} />
-          <div style={{ background:colore, color:textOnBg(colore), borderRadius:8, padding:"8px 14px", fontSize:13, fontWeight:700 }}>
-            {nome||"Anteprima"}
-          </div>
+    <Modal title="Gestione aree" onClose={onClose}>
+      <div style={{ display:"flex", gap:6, marginBottom:20, background:P.canvas, borderRadius:10, padding:4 }}>
+        {[{id:"lista",label:"Aree attive"},{id:"nuova",label:"+ Nuova area"}].map(t => (
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            flex:1, padding:"7px 0", background:tab===t.id?P.terra:"transparent",
+            color:tab===t.id?P.ecru:P.terra, border:"none", borderRadius:7,
+            fontSize:12, fontWeight:700, cursor:"pointer",
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {tab==="lista" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {areeAttive.map(a => (
+            <div key={a.id}>
+              {confirmArch===a.id ? (
+                <div style={{ background:"#FEF9E7", border:`1px solid #F0C040`, borderRadius:10, padding:"12px 14px" }}>
+                  <div style={{ fontSize:12, color:P.terra, marginBottom:10 }}>Archiviare <strong>{a.nome}</strong>? Sparirà dal calendario ma i post restano.</div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={()=>setConfirmArch(null)} style={{ flex:1, background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:8, padding:"7px 0", fontSize:12, cursor:"pointer" }}>Annulla</button>
+                    <button onClick={()=>handleArchivia(a.id)} disabled={saving} style={{ flex:1, background:"#E67E22", border:"none", borderRadius:8, padding:"7px 0", fontSize:12, fontWeight:700, color:"#fff", cursor:"pointer" }}>Archivia</button>
+                  </div>
+                </div>
+              ) : editId===a.id ? (
+                <div style={{ background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:10, padding:"12px 14px" }}>
+                  <input value={editNome} onChange={e=>setEditNome(e.target.value)} style={{...inputStyle, marginBottom:10}} />
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                    <input type="color" value={editColore} onChange={e=>setEditColore(e.target.value)}
+                      style={{ width:36, height:36, border:"none", borderRadius:6, cursor:"pointer" }} />
+                    <div style={{ background:editColore, color:textOnBg(editColore), borderRadius:6, padding:"5px 12px", fontSize:12, fontWeight:700 }}>{editNome}</div>
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={()=>setEditId(null)} style={{ flex:1, background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:8, padding:"7px 0", fontSize:12, cursor:"pointer" }}>Annulla</button>
+                    <button onClick={()=>handleUpdate(a.id)} disabled={saving} style={{ flex:2, background:P.ruggine, border:"none", borderRadius:8, padding:"7px 0", fontSize:12, fontWeight:700, color:"#fff", cursor:"pointer" }}>Salva</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background:P.warm_white, border:`1px solid ${P.ecru}`, borderLeft:`4px solid ${a.colore_hex}`, borderRadius:10, padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
+                  <span style={{ width:10, height:10, borderRadius:"50%", background:a.colore_hex, flexShrink:0 }} />
+                  <span style={{ flex:1, fontSize:13, fontWeight:700, color:P.terra }}>{a.nome}</span>
+                  <button onClick={()=>{ setEditId(a.id); setEditNome(a.nome); setEditColore(a.colore_hex); }} style={{ background:"none", border:`1px solid ${P.ecru}`, borderRadius:6, padding:"4px 8px", fontSize:11, color:P.muschio, cursor:"pointer" }}>✏️</button>
+                  <button onClick={()=>setConfirmArch(a.id)} style={{ background:"none", border:`1px solid #F5C6C6`, borderRadius:6, padding:"4px 8px", fontSize:11, color:"#E67E22", cursor:"pointer" }}>📦</button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-      </Field>
-      <button onClick={handleSave} disabled={saving||!nome} style={btnPrimary(saving||!nome)}>
-        {saving ? "Salvataggio…" : "Aggiungi area"}
-      </button>
+      )}
+
+      {tab==="nuova" && (
+        <>
+          <Field label="Nome area">
+            <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="es. Trauma" style={inputStyle} />
+          </Field>
+          <Field label="Colore identificativo">
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <input type="color" value={colore} onChange={e=>setColore(e.target.value)}
+                style={{ width:44, height:44, border:"none", borderRadius:8, cursor:"pointer" }} />
+              <div style={{ background:colore, color:textOnBg(colore), borderRadius:8, padding:"8px 14px", fontSize:13, fontWeight:700 }}>
+                {nome||"Anteprima"}
+              </div>
+            </div>
+          </Field>
+          <button onClick={handleSave} disabled={saving||!nome} style={btnPrimary(saving||!nome)}>
+            {saving ? "Salvataggio…" : "Aggiungi area"}
+          </button>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+// ── MODAL GESTIONE PROGETTI ───────────────────────────────────────────────────
+function GestioneProgettiModal({ onClose, progetti, aree, team, onSave, onUpdate, onArchivia }) {
+  const [tab, setTab] = useState("lista");
+  const [form, setForm] = useState({ area_id: aree[0]?.id||"", nome:"", sigla:"", resp_grafica_id:"", ref_coworker:"" });
+  const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [confirmArch, setConfirmArch] = useState(null);
+
+  function setF(k,v) { setForm(f=>({...f,[k]:v})); }
+  function setEF(k,v) { setEditForm(f=>({...f,[k]:v})); }
+
+  async function handleSave() {
+    if (!form.nome||!form.sigla) return;
+    setSaving(true);
+    await onSave({ ...form, resp_grafica_id: form.resp_grafica_id||null });
+    setForm({ area_id: aree[0]?.id||"", nome:"", sigla:"", resp_grafica_id:"", ref_coworker:"" });
+    setSaving(false);
+    setTab("lista");
+  }
+
+  async function handleUpdate(id) {
+    setSaving(true);
+    await onUpdate(id, { nome: editForm.nome, sigla: editForm.sigla, resp_grafica_id: editForm.resp_grafica_id||null, ref_coworker: editForm.ref_coworker });
+    setSaving(false);
+    setEditId(null);
+  }
+
+  async function handleArchivia(id) {
+    setSaving(true);
+    await onArchivia(id);
+    setSaving(false);
+    setConfirmArch(null);
+  }
+
+  const progettiAttivi = progetti.filter(p => !p.archiviato);
+
+  return (
+    <Modal title="Gestione progetti" onClose={onClose}>
+      <div style={{ display:"flex", gap:6, marginBottom:20, background:P.canvas, borderRadius:10, padding:4 }}>
+        {[{id:"lista",label:"Progetti attivi"},{id:"nuovo",label:"+ Nuovo"}].map(t => (
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            flex:1, padding:"7px 0", background:tab===t.id?P.terra:"transparent",
+            color:tab===t.id?P.ecru:P.terra, border:"none", borderRadius:7,
+            fontSize:12, fontWeight:700, cursor:"pointer",
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {tab==="lista" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {progettiAttivi.map(p => {
+            const area = aree.find(a=>a.id===p.area_id);
+            const col = area?.colore_hex||"#C4B8A8";
+            const resp = team.find(t=>t.id===p.resp_grafica_id);
+            return (
+              <div key={p.id}>
+                {confirmArch===p.id ? (
+                  <div style={{ background:"#FEF9E7", border:`1px solid #F0C040`, borderRadius:10, padding:"12px 14px" }}>
+                    <div style={{ fontSize:12, color:P.terra, marginBottom:10 }}>Archiviare <strong>{p.nome}</strong>?</div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={()=>setConfirmArch(null)} style={{ flex:1, background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:8, padding:"7px 0", fontSize:12, cursor:"pointer" }}>Annulla</button>
+                      <button onClick={()=>handleArchivia(p.id)} disabled={saving} style={{ flex:1, background:"#E67E22", border:"none", borderRadius:8, padding:"7px 0", fontSize:12, fontWeight:700, color:"#fff", cursor:"pointer" }}>Archivia</button>
+                    </div>
+                  </div>
+                ) : editId===p.id ? (
+                  <div style={{ background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:10, padding:"12px 14px" }}>
+                    <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                      <input value={editForm.nome} onChange={e=>setEF("nome",e.target.value)} placeholder="Nome" style={{...inputStyle, flex:2}} />
+                      <input value={editForm.sigla} onChange={e=>setEF("sigla",e.target.value.toUpperCase().slice(0,3))} placeholder="Sigla" style={{...inputStyle, flex:1}} />
+                    </div>
+                    <input value={editForm.ref_coworker||""} onChange={e=>setEF("ref_coworker",e.target.value)} placeholder="Ref. coworker" style={{...inputStyle, marginBottom:8}} />
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={()=>setEditId(null)} style={{ flex:1, background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:8, padding:"7px 0", fontSize:12, cursor:"pointer" }}>Annulla</button>
+                      <button onClick={()=>handleUpdate(p.id)} disabled={saving} style={{ flex:2, background:P.ruggine, border:"none", borderRadius:8, padding:"7px 0", fontSize:12, fontWeight:700, color:"#fff", cursor:"pointer" }}>Salva</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ background:P.warm_white, border:`1px solid ${P.ecru}`, borderLeft:`4px solid ${col}`, borderRadius:10, padding:"10px 14px", display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ background:col, color:textOnBg(col), borderRadius:5, padding:"2px 7px", fontSize:11, fontWeight:800 }}>{p.sigla}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:P.terra }}>{p.nome}</div>
+                      <div style={{ fontSize:10, color:P.muschio }}>{area?.nome}{resp ? ` · ${resp.nome}` : ""}</div>
+                    </div>
+                    <button onClick={()=>{ setEditId(p.id); setEditForm({nome:p.nome, sigla:p.sigla, resp_grafica_id:p.resp_grafica_id||"", ref_coworker:p.ref_coworker||""}); }} style={{ background:"none", border:`1px solid ${P.ecru}`, borderRadius:6, padding:"4px 8px", fontSize:11, color:P.muschio, cursor:"pointer" }}>✏️</button>
+                    <button onClick={()=>setConfirmArch(p.id)} style={{ background:"none", border:`1px solid #F5C6C6`, borderRadius:6, padding:"4px 8px", fontSize:11, color:"#E67E22", cursor:"pointer" }}>📦</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab==="nuovo" && (
+        <>
+          <Field label="Area">
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {aree.filter(a=>!a.archiviata).map(a => (
+                <button key={a.id} onClick={()=>setF("area_id",a.id)} style={{
+                  ...btnChip(form.area_id===a.id, a.colore_hex, textOnBg(a.colore_hex)),
+                  display:"flex", alignItems:"center", gap:5,
+                }}>
+                  <span style={{ width:8, height:8, borderRadius:"50%", background:a.colore_hex }} />
+                  {a.nome}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Nome progetto">
+            <input value={form.nome} onChange={e=>setF("nome",e.target.value)} placeholder="es. Sclerosi Multipla" style={inputStyle} />
+          </Field>
+          <Field label="Sigla (max 3 caratteri)">
+            <input value={form.sigla} onChange={e=>setF("sigla",e.target.value.toUpperCase().slice(0,3))} placeholder="es. SM" style={inputStyle} />
+          </Field>
+          <Field label="Responsabile grafica">
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {[{id:"",nome:"—"}, ...team].map(t => (
+                <button key={t.id} onClick={()=>setF("resp_grafica_id",t.id)} style={btnChip(form.resp_grafica_id===t.id, P.muschio)}>{t.nome}</button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Referente coworker">
+            <input value={form.ref_coworker} onChange={e=>setF("ref_coworker",e.target.value)} placeholder="es. Dr. Bianchi" style={inputStyle} />
+          </Field>
+          <button onClick={handleSave} disabled={saving||!form.nome||!form.sigla} style={btnPrimary(saving||!form.nome||!form.sigla)}>
+            {saving ? "Salvataggio…" : "Aggiungi progetto"}
+          </button>
+        </>
+      )}
     </Modal>
   );
 }
@@ -347,72 +575,170 @@ function NuovoProgettoModal({ onClose, onSave, aree, team }) {
   );
 }
 
-// ── MODAL DETTAGLIO POST ──────────────────────────────────────────────────────
-function PostModal({ post, onClose, onUpdate, aree, team, progetti }) {
+// ── MODAL DETTAGLIO POST (con modifica completa + elimina) ───────────────────
+function PostModal({ post, onClose, onUpdate, onDelete, aree, team, progetti }) {
   if (!post) return null;
-  const [editResp, setEditResp] = useState(false);
+  const [mode, setMode] = useState("view"); // view | edit
   const [saving, setSaving] = useState(false);
-  const area = aree.find(a => a.id === post.area_id);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [form, setForm] = useState({
+    titolo: post.titolo,
+    data_pubblicazione: post.data_pubblicazione,
+    area_id: post.area_id,
+    progetto_id: post.progetto_id || "",
+    responsabile_id: post.responsabile_id || "",
+    stato: post.stato,
+    note: post.note || "",
+  });
+
+  const area = aree.find(a => a.id === (mode==="edit" ? form.area_id : post.area_id));
   const col = area?.colore_hex || "#C4B8A8";
   const progetto = progetti.find(p => p.id === post.progetto_id);
   const responsabile = team.find(t => t.id === post.responsabile_id);
+  const progettiArea = progetti.filter(p => p.area_id === form.area_id);
 
-  async function update(changes) {
+  function setF(k,v) { setForm(f=>({...f,[k]:v})); }
+
+  async function handleSave() {
     setSaving(true);
-    await onUpdate(post.id, changes);
+    await onUpdate(post.id, {
+      ...form,
+      progetto_id: form.progetto_id || null,
+      responsabile_id: form.responsabile_id || null,
+    });
+    setSaving(false);
+    setMode("view");
+  }
+
+  async function handleDelete() {
+    setSaving(true);
+    await onDelete(post.id);
+    setSaving(false);
+    onClose();
+  }
+
+  async function quickUpdateStato(statoId) {
+    setSaving(true);
+    await onUpdate(post.id, { stato: statoId });
     setSaving(false);
   }
+
+  if (confirmDelete) return (
+    <Modal title="Elimina contenuto" onClose={()=>setConfirmDelete(false)}>
+      <div style={{ textAlign:"center", padding:"8px 0 20px" }}>
+        <div style={{ fontSize:32, marginBottom:12 }}>🗑️</div>
+        <div style={{ fontSize:14, color:P.terra, marginBottom:6, fontWeight:600 }}>Vuoi eliminare questo contenuto?</div>
+        <div style={{ fontSize:12, color:"#9A8E84", marginBottom:24 }}>"{post.titolo}"</div>
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={()=>setConfirmDelete(false)} style={{ flex:1, background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:10, padding:"10px 0", fontSize:13, fontWeight:600, cursor:"pointer", color:P.terra }}>
+            Annulla
+          </button>
+          <button onClick={handleDelete} disabled={saving} style={{ flex:1, background:"#C0392B", border:"none", borderRadius:10, padding:"10px 0", fontSize:13, fontWeight:600, cursor:"pointer", color:"#fff" }}>
+            {saving ? "…" : "Elimina"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+
+  if (mode === "edit") return (
+    <Modal title="Modifica contenuto" onClose={()=>setMode("view")}>
+      <Field label="Titolo / tema">
+        <input value={form.titolo} onChange={e=>setF("titolo",e.target.value)} style={inputStyle} />
+      </Field>
+      <Field label="Data di pubblicazione">
+        <input type="date" value={form.data_pubblicazione} onChange={e=>setF("data_pubblicazione",e.target.value)} style={inputStyle} />
+      </Field>
+      <Field label="Area">
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+          {aree.map(a => (
+            <button key={a.id} onClick={()=>{ setF("area_id",a.id); setF("progetto_id",""); }} style={{
+              ...btnChip(form.area_id===a.id, a.colore_hex, textOnBg(a.colore_hex)),
+              display:"flex", alignItems:"center", gap:5,
+            }}>
+              <span style={{ width:8, height:8, borderRadius:"50%", background:a.colore_hex }} />
+              {a.nome}
+            </button>
+          ))}
+        </div>
+      </Field>
+      {progettiArea.length > 0 && (
+        <Field label="Progetto">
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            <button onClick={()=>setF("progetto_id","")} style={btnChip(form.progetto_id==="")}>Nessuno</button>
+            {progettiArea.map(p => (
+              <button key={p.id} onClick={()=>setF("progetto_id",p.id)}
+                style={btnChip(form.progetto_id===p.id, area?.colore_hex||P.terra, textOnBg(area?.colore_hex||P.terra))}>
+                {p.sigla} — {p.nome}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
+      <Field label="Responsabile">
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {[{id:"",nome:"— nessuno —"}, ...team].map(t => (
+            <button key={t.id} onClick={()=>setF("responsabile_id",t.id)} style={btnChip(form.responsabile_id===t.id, P.muschio)}>
+              {t.nome}
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Stato">
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+          {STATI.map(s => (
+            <button key={s.id} onClick={()=>setF("stato",s.id)} style={{
+              background: form.stato===s.id ? s.dot : s.bg,
+              color: form.stato===s.id ? "#fff" : s.text,
+              border:`1px solid ${s.dot}`, borderRadius:16,
+              padding:"4px 10px", fontSize:11, fontWeight:600, cursor:"pointer",
+            }}>{s.label}</button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Note">
+        <textarea value={form.note} onChange={e=>setF("note",e.target.value)} rows={2} style={{...inputStyle, resize:"vertical"}} />
+      </Field>
+      <div style={{ display:"flex", gap:10, marginTop:8 }}>
+        <button onClick={()=>setMode("view")} style={{ flex:1, background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:10, padding:"10px 0", fontSize:13, fontWeight:600, cursor:"pointer", color:P.terra }}>
+          Annulla
+        </button>
+        <button onClick={handleSave} disabled={saving||!form.titolo} style={{ flex:2, background:saving||!form.titolo?"#C4B8A8":P.ruggine, border:"none", borderRadius:10, padding:"10px 0", fontSize:13, fontWeight:700, cursor:"pointer", color:"#fff" }}>
+          {saving ? "Salvataggio…" : "Salva modifiche"}
+        </button>
+      </div>
+    </Modal>
+  );
 
   return (
     <Modal title="" onClose={onClose}>
       <div style={{ height:4, borderRadius:4, background:col, marginBottom:16, marginTop:-8 }} />
 
-      <div style={{ marginBottom:16 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
-          <span style={{ width:9, height:9, borderRadius:"50%", background:col }} />
-          <span style={{ fontSize:11, color:P.muschio, fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-            {area?.nome}{progetto ? ` · ${progetto.sigla}` : ""}
-          </span>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+            <span style={{ width:9, height:9, borderRadius:"50%", background:col }} />
+            <span style={{ fontSize:11, color:P.muschio, fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase" }}>
+              {area?.nome}{progetto ? ` · ${progetto.sigla}` : ""}
+            </span>
+          </div>
+          <div style={{ fontSize:17, fontWeight:700, color:P.terra, lineHeight:1.3 }}>{post.titolo}</div>
         </div>
-        <div style={{ fontSize:17, fontWeight:700, color:P.terra, lineHeight:1.3 }}>{post.titolo}</div>
+        <div style={{ display:"flex", gap:6, marginLeft:8 }}>
+          <button onClick={()=>setMode("edit")} style={{ background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:7, padding:"5px 10px", fontSize:11, color:P.muschio, cursor:"pointer" }}>✏️ Modifica</button>
+          <button onClick={()=>setConfirmDelete(true)} style={{ background:"none", border:`1px solid #F5C6C6`, borderRadius:7, padding:"5px 10px", fontSize:11, color:"#C0392B", cursor:"pointer" }}>🗑️</button>
+        </div>
       </div>
 
       <div style={{ display:"flex", gap:12, alignItems:"center", marginBottom:20, flexWrap:"wrap" }}>
-        <span style={{ fontSize:12, color:"#7A6E65" }}>
-          📅 {post.data_pubblicazione?.split("-").reverse().join("/")}
-        </span>
+        <span style={{ fontSize:12, color:"#7A6E65" }}>📅 {post.data_pubblicazione?.split("-").reverse().join("/")}</span>
         {post.stato !== "pubblicato" && post.data_pubblicazione && <ScadenzaChip dataStr={post.data_pubblicazione} />}
+        {responsabile && <span style={{ fontSize:12, color:"#7A6E65" }}>👤 {responsabile.nome}</span>}
       </div>
 
       {post.note && (
-        <div style={{ background:P.canvas, borderRadius:8, padding:"8px 12px", marginBottom:16, fontSize:12, color:"#6B5E4E" }}>
-          {post.note}
-        </div>
+        <div style={{ background:P.canvas, borderRadius:8, padding:"8px 12px", marginBottom:16, fontSize:12, color:"#6B5E4E" }}>{post.note}</div>
       )}
-
-      {/* Responsabile */}
-      <div style={{ marginBottom:18 }}>
-        <div style={{ fontSize:11, color:"#9A8E84", marginBottom:8, fontWeight:600, letterSpacing:"0.06em", textTransform:"uppercase" }}>Responsabile</div>
-        {!editResp ? (
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <div style={{ background:P.canvas, border:`1px solid ${P.ecru}`, borderRadius:8, padding:"6px 12px", fontSize:13, fontWeight:600, color:P.terra }}>
-              {responsabile?.nome || <span style={{color:"#A89880"}}>— non assegnato —</span>}
-            </div>
-            <button onClick={()=>setEditResp(true)} style={{ background:"none", border:`1px solid ${P.ecru}`, borderRadius:7, padding:"5px 10px", fontSize:11, color:P.muschio, cursor:"pointer" }}>
-              Cambia →
-            </button>
-          </div>
-        ) : (
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-            {[{id:null,nome:"— nessuno —"}, ...team].map(t => (
-              <button key={t.id||"null"} onClick={()=>{ update({responsabile_id:t.id}); setEditResp(false); }}
-                style={btnChip(t.id===post.responsabile_id, P.muschio)}>
-                {t.nome}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
 
       <div style={{ borderTop:`1px solid ${P.ecru}`, margin:"16px 0" }} />
 
@@ -420,7 +746,7 @@ function PostModal({ post, onClose, onUpdate, aree, team, progetti }) {
         <div style={{ fontSize:11, color:"#9A8E84", marginBottom:8, fontWeight:600, letterSpacing:"0.06em", textTransform:"uppercase" }}>Aggiorna stato</div>
         <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
           {STATI.map(st => (
-            <button key={st.id} onClick={()=>update({stato:st.id})} disabled={saving} style={{
+            <button key={st.id} onClick={()=>quickUpdateStato(st.id)} disabled={saving} style={{
               background: st.id===post.stato ? st.dot : st.bg,
               color: st.id===post.stato ? "#fff" : st.text,
               border:`1px solid ${st.dot}`, borderRadius:20,
@@ -764,11 +1090,11 @@ export default function App() {
   const [meseIdx,     setMeseIdx]     = useState(new Date().getMonth());
   const [postSel,     setPostSel]     = useState(null);
 
-  const [showNuovoPost,     setShowNuovoPost]     = useState(false);
-  const [showNuovaArea,     setShowNuovaArea]     = useState(false);
-  const [showNuovoProgetto, setShowNuovoProgetto] = useState(false);
-  const [prefillAreaId,     setPrefillAreaId]     = useState(null);
-  const [prefillData,       setPrefillData]       = useState(null);
+  const [showNuovoPost,      setShowNuovoPost]      = useState(false);
+  const [showGestioneAree,   setShowGestioneAree]   = useState(false);
+  const [showGestioneProj,   setShowGestioneProj]   = useState(false);
+  const [prefillAreaId,      setPrefillAreaId]      = useState(null);
+  const [prefillData,        setPrefillData]        = useState(null);
 
   const year = 2026;
 
@@ -797,6 +1123,10 @@ export default function App() {
     load();
   }, []);
 
+  // Filtered active only
+  const areeAttive = aree.filter(a => !a.archiviata);
+  const progettiAttivi = progetti.filter(p => !p.archiviato);
+
   // ── CRUD ──────────────────────────────────────────────────────────────────
   async function savePost(form) {
     const res = await sb("posts", { method:"POST", body: JSON.stringify(form) });
@@ -805,6 +1135,33 @@ export default function App() {
       setShowNuovoPost(false);
       showToast("Contenuto aggiunto ✓");
     }
+  }
+
+  async function deletePost(id) {
+    await sb(`posts?id=eq.${id}`, { method:"DELETE" });
+    setPosts(prev => prev.filter(p => p.id !== id));
+    setPostSel(null);
+    showToast("Contenuto eliminato");
+  }
+
+  async function updateArea(id, changes) {
+    const res = await sb(`aree?id=eq.${id}`, { method:"PATCH", body: JSON.stringify(changes) });
+    if (res?.length) setAree(prev => prev.map(a => a.id===id ? {...a,...changes} : a));
+  }
+
+  async function archiviaArea(id) {
+    await updateArea(id, { archiviata: true });
+    showToast("Area archiviata");
+  }
+
+  async function updateProgetto(id, changes) {
+    const res = await sb(`progetti?id=eq.${id}`, { method:"PATCH", body: JSON.stringify(changes) });
+    if (res?.length) setProgetti(prev => prev.map(p => p.id===id ? {...p,...changes} : p));
+  }
+
+  async function archiviaProgetto(id) {
+    await updateProgetto(id, { archiviato: true });
+    showToast("Progetto archiviato");
   }
 
   async function updatePost(id, changes) {
@@ -891,11 +1248,11 @@ export default function App() {
               <button onClick={()=>setMeseIdx(m=>Math.min(11,m+1))} style={{...navBtn, opacity:meseIdx===11?0.3:1}}>→</button>
             </div>
 
-            <PannelloSigle progetti={progetti} aree={aree} team={team} onAggiungi={()=>setShowNuovoProgetto(true)} />
+            <PannelloSigle progetti={progettiAttivi} aree={areeAttive} team={team} onAggiungi={()=>setShowGestioneProj(true)} />
 
             {vistaCalend==="timeline"
               ? <>
-                  <VistaTimeline posts={postsMese} year={year} month={meseIdx} onPostClick={setPostSel} onCellClick={handleCellClick} aree={aree} progetti={progetti} />
+                  <VistaTimeline posts={postsMese} year={year} month={meseIdx} onPostClick={setPostSel} onCellClick={handleCellClick} aree={areeAttive} progetti={progettiAttivi} />
                   <div style={{ display:"flex", gap:10, marginTop:14, flexWrap:"wrap" }}>
                     {STATI.map(s => (
                       <div key={s.id} style={{ display:"flex", alignItems:"center", gap:5 }}>
@@ -905,23 +1262,23 @@ export default function App() {
                     ))}
                   </div>
                 </>
-              : <VistaLista posts={postsMese} onPostClick={setPostSel} aree={aree} team={team} progetti={progetti} />
+              : <VistaLista posts={postsMese} onPostClick={setPostSel} aree={areeAttive} team={team} progetti={progettiAttivi} />
             }
           </>
         )}
 
         {pagina==="lista" && (
-          <VistaLista posts={posts} onPostClick={setPostSel} aree={aree} team={team} progetti={progetti} />
+          <VistaLista posts={posts} onPostClick={setPostSel} aree={areeAttive} team={team} progetti={progettiAttivi} />
         )}
 
         {pagina==="todo" && (
-          <VistaTodo posts={posts} onPostClick={setPostSel} aree={aree} team={team} progetti={progetti} />
+          <VistaTodo posts={posts} onPostClick={setPostSel} aree={areeAttive} team={team} progetti={progettiAttivi} />
         )}
       </div>
 
       {/* FAB */}
       <div style={{ position:"fixed", bottom:82, right:20, display:"flex", flexDirection:"column", gap:10, zIndex:60 }}>
-        <button onClick={()=>setShowNuovaArea(true)} title="Nuova area" style={{ width:44, height:44, borderRadius:"50%", background:P.muschio, color:"#fff", border:"none", fontSize:11, fontWeight:800, cursor:"pointer", boxShadow:`0 4px 12px ${P.muschio}55` }}>+A</button>
+        <button onClick={()=>setShowGestioneAree(true)} title="Gestione aree" style={{ width:44, height:44, borderRadius:"50%", background:P.muschio, color:"#fff", border:"none", fontSize:11, fontWeight:800, cursor:"pointer", boxShadow:`0 4px 12px ${P.muschio}55` }}>+A</button>
         <button onClick={()=>{ setPrefillAreaId(null); setPrefillData(null); setShowNuovoPost(true); }} title="Nuovo contenuto" style={{ width:52, height:52, borderRadius:"50%", background:P.ruggine, color:"#fff", border:"none", fontSize:26, fontWeight:300, cursor:"pointer", boxShadow:`0 4px 16px ${P.ruggine}55`, display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
       </div>
 
@@ -931,13 +1288,24 @@ export default function App() {
       {showNuovoPost && (
         <NuovoPostModal
           onClose={()=>setShowNuovoPost(false)} onSave={savePost}
-          aree={aree} progetti={progetti} team={team}
+          aree={areeAttive} progetti={progettiAttivi} team={team}
           prefillAreaId={prefillAreaId} prefillData={prefillData}
         />
       )}
-      {showNuovaArea && <NuovaAreaModal onClose={()=>setShowNuovaArea(false)} onSave={saveArea} />}
-      {showNuovoProgetto && <NuovoProgettoModal onClose={()=>setShowNuovoProgetto(false)} onSave={saveProgetto} aree={aree} team={team} />}
-      {postSel && <PostModal post={postSel} onClose={()=>setPostSel(null)} onUpdate={updatePost} aree={aree} team={team} progetti={progetti} />}
+      {showGestioneAree && (
+        <GestioneAreeModal
+          onClose={()=>setShowGestioneAree(false)}
+          aree={aree} onSave={saveArea} onUpdate={updateArea} onArchivia={archiviaArea}
+        />
+      )}
+      {showGestioneProj && (
+        <GestioneProgettiModal
+          onClose={()=>setShowGestioneProj(false)}
+          progetti={progetti} aree={areeAttive} team={team}
+          onSave={saveProgetto} onUpdate={updateProgetto} onArchivia={archiviaProgetto}
+        />
+      )}
+      {postSel && <PostModal post={postSel} onClose={()=>setPostSel(null)} onUpdate={updatePost} onDelete={deletePost} aree={aree} team={team} progetti={progetti} />}
 
       {toast && <Toast msg={toast} onDone={()=>setToast(null)} />}
     </div>
